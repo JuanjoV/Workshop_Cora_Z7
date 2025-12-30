@@ -6,6 +6,7 @@
 #include <xil_types.h>
 #include <xstatus.h>
 #include "xinterrupt_wrap.h"
+#include "xscutimer.h"
 
 #include "ap_int.h"
 
@@ -25,6 +26,7 @@ typedef ap_int<BITSIZE_OUTPUT>  o_data_t;
 
 volatile int ip_status;
 XDot_product_hls_main ip;
+XScuTimer Timer;
 
 enum IP_ready
 {
@@ -34,6 +36,8 @@ enum IP_ready
 
 void IPHandler(void *InstPtr)
 {
+    XScuTimer_Stop(&Timer);
+    u32 elapsed_time = 0xFFFFFFFF - XScuTimer_GetCounterValue(&Timer);
     u32 result_raw;
     o_data_t dut_result;
     XDot_product_hls_main_InterruptDisable(&ip, 1);
@@ -43,6 +47,7 @@ void IPHandler(void *InstPtr)
     dut_result = *((o_data_t *) &result_raw);
 
     std::cout << "Result: " << std::fixed<< std::setprecision(10) << dut_result << std::endl;
+    std::cout << "Elapsed time: " << elapsed_time << " sw ticks" << std::endl;
 
     ip_status = IP_READY;
     XDot_product_hls_main_InterruptClear(&ip,1);
@@ -74,6 +79,13 @@ int main()
         return XST_FAILURE;
     }
 
+    XScuTimer_Config *ConfigPtr;
+
+    ConfigPtr = XScuTimer_LookupConfig(XPAR_SCUTIMER_BASEADDR);
+
+    status = XScuTimer_CfgInitialize(&Timer, ConfigPtr, ConfigPtr->BaseAddr);
+    if (status != XST_SUCCESS) return XST_FAILURE;
+
     XSetupInterruptSystem(&ip, (void *) &IPHandler, HLS_INTERRUPTS, HLS_INTERRUPT_PARENT, XINTERRUPT_DEFAULT_PRIORITY);
     XDot_product_hls_main_InterruptGlobalEnable(&ip);
     XDot_product_hls_main_InterruptEnable(&ip, 1);
@@ -94,10 +106,10 @@ int main()
             XDot_product_hls_main_WriteReg(ip.Control_BaseAddress, XDOT_PRODUCT_HLS_MAIN_CONTROL_ADDR_X_0_DATA +j*8, vec_x[j]);
             XDot_product_hls_main_WriteReg(ip.Control_BaseAddress, XDOT_PRODUCT_HLS_MAIN_CONTROL_ADDR_Y_0_DATA +j*8, vec_y[j]);
         }
-
-        XDot_product_hls_main_Start(&ip);
+        XScuTimer_LoadTimer(&Timer, 0xFFFFFFFF);
         ip_status = IP_BUSY;
-
+        XScuTimer_Start(&Timer);
+        XDot_product_hls_main_Start(&ip);
     }
 
     return 0;
